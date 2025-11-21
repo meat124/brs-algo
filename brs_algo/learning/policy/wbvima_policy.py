@@ -96,7 +96,7 @@ class WBVIMAPolicy(BaseDiffusionPolicy):
         )
         self.action_decoder = WholeBodyUNetDiffusionHead(
             whole_body_decoding_order=["mobile_base", "torso", "arms"],
-            action_dim_per_part={"mobile_base": 3, "torso": 4, "arms": 14},
+            action_dim_per_part={"mobile_base": 3, "torso": 1, "arms": 12},
             obs_dim=xf_n_embd,
             action_horizon=action_prediction_horizon,
             diffusion_step_embed_dim=diffusion_step_embed_dim,
@@ -212,9 +212,10 @@ class WBVIMAPolicy(BaseDiffusionPolicy):
         if transformer_output is None:
             transformer_output = self.forward(obs)
         action_readout_tokens = self._get_action_readout_tokens(transformer_output)
+        # BigYM 16-dim structure: mobile_base(3) + torso(1) + arms(12)
         mobile_base_action = gt_action[..., :3]
-        torso_action = gt_action[..., 3:7]
-        arms_action = gt_action[..., 7:]
+        torso_action = gt_action[..., 3:4]
+        arms_action = gt_action[..., 4:]
         loss = self.action_decoder.compute_loss(
             obs=action_readout_tokens,
             gt_action={
@@ -251,13 +252,12 @@ class WBVIMAPolicy(BaseDiffusionPolicy):
             obs=action_readout_tokens,
             return_last_timestep_only=return_last_timestep_only,
         )  # (B, T_obs, T_act, A) or (B, T_act, A)
+        # Return in the same format as training data for validation/testing
+        # BigYM uses 3-part structure: mobile_base(3), torso(1), arms(12)
         return {
             "mobile_base": pred["mobile_base"],
             "torso": pred["torso"],
-            "left_arm": pred["arms"][..., :6],
-            "left_gripper": pred["arms"][..., 6:7],
-            "right_arm": pred["arms"][..., 7:13],
-            "right_gripper": pred["arms"][..., 13:14],
+            "arms": pred["arms"],  # Keep as single 12-dim tensor
         }
 
     @torch.no_grad()

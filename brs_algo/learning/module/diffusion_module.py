@@ -63,6 +63,8 @@ class DiffusionModule(ImitationBaseModule):
             batch, batch_size=U.get_batch_size(batch, strict=True)
         )
         all_loss, all_mask_sum = [], 0
+        all_l1 = {}  # For component-wise L1 losses
+        
         for i, main_data_chunk in enumerate(main_data):
             # get padding mask
             pad_mask = main_data_chunk.pop(
@@ -88,10 +90,50 @@ class DiffusionModule(ImitationBaseModule):
             loss = loss * pad_mask
             all_loss.append(loss)
             all_mask_sum += pad_mask.sum()
+            
+            # Compute component-wise L1 losses (like validation)
+            # Get predictions for L1 computation
+            pred_actions = self.policy.inference(
+                transformer_output=transformer_output,
+                return_last_timestep_only=False,
+            )  # dict of (B, window_size, L_pred_horizon, A)
+            
+            for action_k in pred_actions:
+                pred = pred_actions[action_k]
+                gt = action_chunks[action_k]
+                l1 = F.l1_loss(
+                    pred, gt, reduction="none"
+                )  # (B, window_size, L_pred_horizon, A)
+                # sum over action dim
+                l1 = l1.sum(dim=-1).reshape(
+                    pad_mask.shape
+                )  # (B, window_size, L_pred_horizon)
+                if self.loss_on_latest_obs_only:
+                    mask = torch.zeros_like(pad_mask)
+                    mask[:, -1] = 1
+                    pad_mask_for_l1 = pad_mask * mask
+                else:
+                    pad_mask_for_l1 = pad_mask
+                l1 = l1 * pad_mask_for_l1
+                if action_k not in all_l1:
+                    all_l1[action_k] = [l1]
+                else:
+                    all_l1[action_k].append(l1)
+        
         action_loss = torch.sum(torch.stack(all_loss)) / all_mask_sum
         # sum over action_prediction_horizon dim instead of avg
         action_loss = action_loss * self.action_prediction_horizon
+        
+        # Compute component-wise L1 losses
+        component_l1 = {
+            k: torch.sum(torch.stack(v)) / all_mask_sum for k, v in all_l1.items()
+        }
+        component_l1 = {k: v * self.action_prediction_horizon for k, v in component_l1.items()}
+        
+        # Build log dict with diffusion loss and component-wise L1s
         log_dict = {"diffusion_loss": action_loss}
+        log_dict.update({f"l1_{k}": v for k, v in component_l1.items()})
+        
         loss = action_loss
         return loss, log_dict, B
 

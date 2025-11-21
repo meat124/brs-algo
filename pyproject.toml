@@ -24,7 +24,7 @@ dependencies = [
     "tabulate",
     "numpy-quaternion"
 ]
-requires-python = ">=3.11"
+requires-python = ">=3.10"
 authors = [
   {name = "Yunfan Jiang", email = "yunfanj@cs.stanford.edu"},
 ]
@@ -38,7 +38,7 @@ classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Researchers, Developers",
     "Topic :: Scientific/Engineering :: Robotics",
-    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.10",
 ]
 
 [project.urls]
